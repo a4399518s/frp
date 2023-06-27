@@ -104,7 +104,7 @@ type Service struct {
 	// service context
 	ctx context.Context
 	// call cancel to stop service
-	cancel context.CancelFunc
+	cancel         context.CancelFunc
 	tcpMapListener net.Listener
 }
 
@@ -605,7 +605,7 @@ func (svr *Service) RegisterVisitorConn(visitorConn net.Conn, newMsg *msg.NewVis
 		newMsg.UseEncryption, newMsg.UseCompression)
 }
 
-func TcpMapListener(svr *Service,timeout time.Duration) {
+func TcpMapListener(svr *Service, timeout time.Duration) {
 	go svr.tcpMapRun()
 }
 func (svr *Service) tcpMapRun() {
@@ -619,32 +619,32 @@ func (svr *Service) tcpMapRun() {
 }
 
 func (svr *Service) tcpMapHandle(c net.Conn) {
-	remoteAddr := c.RemoteAddr().(*net.TCPAddr) 
-	fmt.Println("conn remoteAddr: ",remoteAddr.String());
+	remoteAddr := c.RemoteAddr().(*net.TCPAddr)
+	fmt.Println("conn remoteAddr: ", remoteAddr.String())
 
-	client := redis.NewClient(&redis.Options{  
-		Addr:     svr.cfg.TCPNRedisHost+":"+fmt.Sprintf("%d", svr.cfg.TCPNRedisPort), 
-		DB:       svr.cfg.TCPNRedisDb,  
+	client := redis.NewClient(&redis.Options{
+		Addr: svr.cfg.TCPNRedisHost + ":" + fmt.Sprintf("%d", svr.cfg.TCPNRedisPort),
+		DB:   svr.cfg.TCPNRedisDb,
 	})
-	redisKey := "frp:tcp:map:"+remoteAddr.IP.String();
-	fmt.Println("redisKey: ",redisKey);
-	value, err := client.Get(redisKey).Result() 
-	client.Close() 
+	redisKey := "frp:tcp:map:" + remoteAddr.IP.String()
+	fmt.Println("redisKey: ", redisKey)
+	value, err := client.Get(redisKey).Result()
+	client.Close()
 	if err != nil {
 		fmt.Println(err)
 		_ = c.Close()
 		return
 	}
-	pxy,ok := svr.pxyManager.GetByName(value)
-	fmt.Println("ok:",ok);
+	pxy, ok := svr.pxyManager.GetByName(value)
+	fmt.Println("ok:", ok)
 	if !ok {
 		_ = c.Close()
 		return
 	}
-	fmt.Println("pxy:",pxy.GetConf().GetBaseInfo().ProxyType);
+	fmt.Println("pxy:", pxy.GetConf().GetBaseInfo().ProxyType)
 	if pxy.GetConf().GetBaseInfo().ProxyType != "tcp" {
 		_ = c.Close()
 		return
 	}
-	proxy.HandleUserTCPConnection(pxy, c,svr.cfg)
+	proxy.HandleUserTCPConnection(pxy, c, svr.cfg)
 }
