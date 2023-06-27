@@ -51,6 +51,7 @@ import (
 	"github.com/fatedier/frp/server/ports"
 	"github.com/fatedier/frp/server/proxy"
 	"github.com/fatedier/frp/server/visitor"
+	"github.com/go-redis/redis"
 )
 
 const (
@@ -104,6 +105,7 @@ type Service struct {
 	ctx context.Context
 	// call cancel to stop service
 	cancel context.CancelFunc
+	tcpMapListener net.Listener
 }
 
 func NewService(cfg config.ServerCommonConf) (svr *Service, err error) {
@@ -149,6 +151,18 @@ func NewService(cfg config.ServerCommonConf) (svr *Service, err error) {
 			return
 		}
 		log.Info("tcpmux httpconnect multiplexer listen on %s, passthough: %v", address, cfg.TCPMuxPassthrough)
+	}
+	//TODO 启动tcpn
+	if cfg.TCPNConnectPort > 0 {
+		address := net.JoinHostPort(cfg.ProxyBindAddr, strconv.Itoa(cfg.TCPNConnectPort))
+		svr.tcpMapListener, err = net.Listen("tcp", address)
+		if err != nil {
+			err = fmt.Errorf("create server listener error, %v", err)
+			return
+		}
+
+		TcpMapListener(svr, vhostReadWriteTimeout)
+		log.Info("tcpn connect multiplexer listen on %s", address)
 	}
 
 	// Init all plugins
@@ -589,4 +603,48 @@ func (svr *Service) RegisterWorkConn(workConn net.Conn, newMsg *msg.NewWorkConn)
 func (svr *Service) RegisterVisitorConn(visitorConn net.Conn, newMsg *msg.NewVisitorConn) error {
 	return svr.rc.VisitorManager.NewConn(newMsg.ProxyName, visitorConn, newMsg.Timestamp, newMsg.SignKey,
 		newMsg.UseEncryption, newMsg.UseCompression)
+}
+
+func TcpMapListener(svr *Service,timeout time.Duration) {
+	go svr.tcpMapRun()
+}
+func (svr *Service) tcpMapRun() {
+	for {
+		conn, err := svr.tcpMapListener.Accept()
+		if err != nil {
+			return
+		}
+		go svr.tcpMapHandle(conn)
+	}
+}
+
+func (svr *Service) tcpMapHandle(c net.Conn) {
+	remoteAddr := c.RemoteAddr().(*net.TCPAddr) 
+	fmt.Println("conn remoteAddr: ",remoteAddr.String());
+
+	client := redis.NewClient(&redis.Options{  
+		Addr:     svr.cfg.TCPNRedisHost+":"+fmt.Sprintf("%d", svr.cfg.TCPNRedisPort), 
+		DB:       svr.cfg.TCPNRedisDb,  
+	})
+	redisKey := "frp:tcp:map:"+remoteAddr.IP.String();
+	fmt.Println("redisKey: ",redisKey);
+	value, err := client.Get(redisKey).Result() 
+	client.Close() 
+	if err != nil {
+		fmt.Println(err)
+		_ = c.Close()
+		return
+	}
+	pxy,ok := svr.pxyManager.GetByName(value)
+	fmt.Println("ok:",ok);
+	if !ok {
+		_ = c.Close()
+		return
+	}
+	fmt.Println("pxy:",pxy.GetConf().GetBaseInfo().ProxyType);
+	if pxy.GetConf().GetBaseInfo().ProxyType != "tcp" {
+		_ = c.Close()
+		return
+	}
+	proxy.HandleUserTCPConnection(pxy, c,svr.cfg)
 }

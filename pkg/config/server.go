@@ -68,6 +68,12 @@ type ServerCommonConf struct {
 	TCPMuxHTTPConnectPort int `ini:"tcpmux_httpconnect_port" json:"tcpmux_httpconnect_port" validate:"gte=0,lte=65535"`
 	// If TCPMuxPassthrough is true, frps won't do any update on traffic.
 	TCPMuxPassthrough bool `ini:"tcpmux_passthrough" json:"tcpmux_passthrough"`
+	
+	TCPNConnectPort int `ini:"tcpn_connect_port" json:"tcpn_connect_port" validate:"gte=0,lte=65535"`
+	TCPNRedisHost string `ini:"tcpn_redis_host" json:"tcpn_redis_host"`
+	TCPNRedisPort int `ini:"tcpn_redis_port" json:"tcpn_redis_port" validate:"gte=0,lte=65535"`
+	TCPNRedisDb int `ini:"tcpn_redis_db" json:"tcpn_redis_db" validate:"gte=0,lte=15"`
+
 	// VhostHTTPTimeout specifies the response header timeout for the Vhost
 	// HTTP server, in seconds. By default, this value is 60.
 	VhostHTTPTimeout int64 `ini:"vhost_http_timeout" json:"vhost_http_timeout"`
