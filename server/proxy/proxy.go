@@ -34,6 +34,7 @@ import (
 	"github.com/fatedier/frp/pkg/util/xlog"
 	"github.com/fatedier/frp/server/controller"
 	"github.com/fatedier/frp/server/metrics"
+	"github.com/go-redis/redis"
 )
 
 type GetWorkConnFn func() (net.Conn, error)
@@ -265,13 +266,36 @@ func NewProxy(ctx context.Context, userInfo plugin.UserInfo, rc *controller.Reso
 	}
 	return
 }
+// HandleUserTCPConnection is used for incoming user TCP connections.
+// It can be used for tcp, http, https type.
+func HandleUserTCPConnectionRedis(pxy Proxy, userConn net.Conn, serverCfg config.ServerCommonConf) {
+
+	remoteAddr := userConn.RemoteAddr().(*net.TCPAddr)
+	userConnIp := remoteAddr.IP.String()
+	HandleUserTCPConnection(pxy, userConn , serverCfg)
+
+	client := redis.NewClient(&redis.Options{
+		Addr: serverCfg.TCPNRedisHost + ":" + fmt.Sprintf("%d", serverCfg.TCPNRedisPort),
+		DB:   serverCfg.TCPNRedisDb,
+	})
+	redisKey := "frp:tcp:map:num:" + userConnIp
+	val, _ := client.Decr(redisKey).Result()
+	if val == 0 {
+		client.Del(redisKey).Result()
+		redisKey := "frp:tcp:map:" + userConnIp
+		client.Del(redisKey).Result()
+	}else{
+		client.ExpireAt(redisKey, time.Now().Add(time.Second*60*60)).Result()
+		client.Close()
+	}
+
+}
 
 // HandleUserTCPConnection is used for incoming user TCP connections.
 // It can be used for tcp, http, https type.
 func HandleUserTCPConnection(pxy Proxy, userConn net.Conn, serverCfg config.ServerCommonConf) {
 	xl := xlog.FromContextSafe(pxy.Context())
 	defer userConn.Close()
-
 	// server plugin hook
 	rc := pxy.GetResourceController()
 	content := &plugin.NewUserConnContent{
@@ -285,14 +309,12 @@ func HandleUserTCPConnection(pxy Proxy, userConn net.Conn, serverCfg config.Serv
 		xl.Warn("the user conn [%s] was rejected, err:%v", content.RemoteAddr, err)
 		return
 	}
-
 	// try all connections from the pool
 	workConn, err := pxy.GetWorkConnFromPool(userConn.RemoteAddr(), userConn.LocalAddr())
 	if err != nil {
 		return
 	}
 	defer workConn.Close()
-
 	var local io.ReadWriteCloser = workConn
 	cfg := pxy.GetConf().GetBaseInfo()
 	xl.Trace("handler user tcp connection, use_encryption: %t, use_compression: %t", cfg.UseEncryption, cfg.UseCompression)
@@ -312,10 +334,8 @@ func HandleUserTCPConnection(pxy Proxy, userConn net.Conn, serverCfg config.Serv
 			return local.Close()
 		})
 	}
-
 	xl.Debug("join connections, workConn(l[%s] r[%s]) userConn(l[%s] r[%s])", workConn.LocalAddr().String(),
 		workConn.RemoteAddr().String(), userConn.LocalAddr().String(), userConn.RemoteAddr().String())
-
 	name := pxy.GetName()
 	proxyType := pxy.GetConf().GetBaseInfo().ProxyType
 	metrics.Server.OpenConnection(name, proxyType)

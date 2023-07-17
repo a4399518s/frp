@@ -629,22 +629,30 @@ func (svr *Service) tcpMapHandle(c net.Conn) {
 	redisKey := "frp:tcp:map:" + remoteAddr.IP.String()
 	fmt.Println("redisKey: ", redisKey)
 	value, err := client.Get(redisKey).Result()
-	client.Close()
+	
 	if err != nil {
 		fmt.Println(err)
 		_ = c.Close()
+		client.Close()
 		return
 	}
 	pxy, ok := svr.pxyManager.GetByName(value)
 	fmt.Println("ok:", ok)
 	if !ok {
 		_ = c.Close()
+		client.Close()
 		return
 	}
 	fmt.Println("pxy:", pxy.GetConf().GetBaseInfo().ProxyType)
 	if pxy.GetConf().GetBaseInfo().ProxyType != "tcp" {
 		_ = c.Close()
+		client.Close()
 		return
 	}
-	proxy.HandleUserTCPConnection(pxy, c, svr.cfg)
+	redisKey = "frp:tcp:map:num:" + remoteAddr.IP.String()
+	client.Incr(redisKey).Result()
+	client.ExpireAt(redisKey, time.Now().Add(time.Second*60*60)).Result()
+	client.Close()
+	proxy.HandleUserTCPConnectionRedis(pxy, c, svr.cfg)
+
 }

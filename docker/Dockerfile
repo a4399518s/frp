@@ -1,6 +1,6 @@
 FROM registry.cn-shanghai.aliyuncs.com/fengzhihao/ubuntu:20.04
 
-ADD . /usr/local/project/src
+ADD ../ /usr/local/project/src/frp
 
 ENV GO111MODULE=on
 # 七牛云
